@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ThumbsUp,
   ThumbsDown,
@@ -8,6 +8,7 @@ import {
   Download,
   MoreHorizontal,
   Eye,
+  Trash2,
 } from 'lucide-react';
 import MainLayout from '@/components/layout/MainLayout';
 import VideoPlayer from '@/components/video/VideoPlayer';
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 import { mockComments, formatViews, formatDate, Video } from '@/lib/mockData';
 import {
   getVideo,
@@ -24,21 +26,34 @@ import {
   incrementVideoView,
   updateVideoReaction,
   updateVideoSubscribers,
+  deleteVideo,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const Watch = () => {
   const { videoId } = useParams<{ videoId: string }>();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
+  const { socket } = useSocket();
   const { toast } = useToast();
-  
+  const navigate = useNavigate();
+
   const [video, setVideo] = useState<Video | null>(null);
   const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
   const [views, setViews] = useState(0);
   const [likes, setLikes] = useState(0);
   const [dislikes, setDislikes] = useState(0);
-   // Keep a client-side copy of subscriber count for real-time updates
   const [subscribers, setSubscribers] = useState(0);
   const [userReaction, setUserReaction] = useState<'like' | 'dislike' | null>(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -46,6 +61,7 @@ const Watch = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasRecordedView, setHasRecordedView] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch video and related videos
   useEffect(() => {
@@ -56,6 +72,8 @@ const Watch = () => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setHasRecordedView(false); // Reset view record on new video
+
     getVideo(videoId)
       .then((v) => {
         if (cancelled) return;
@@ -80,6 +98,37 @@ const Watch = () => {
     };
   }, [videoId]);
 
+  // Real-time updates via Socket.IO
+  useEffect(() => {
+    if (!socket || !videoId) return;
+
+    socket.emit('join_video', videoId);
+
+    const handleViewUpdate = (data: { views: number }) => {
+      setViews(data.views);
+    };
+
+    const handleReactionUpdate = (data: { likes: number; dislikes: number }) => {
+      setLikes(data.likes);
+      setDislikes(data.dislikes);
+    };
+
+    const handleSubscriberUpdate = (data: { subscribers: number }) => {
+      setSubscribers(data.subscribers);
+    };
+
+    socket.on('view_updated', handleViewUpdate);
+    socket.on('reaction_updated', handleReactionUpdate);
+    socket.on('subscriber_updated', handleSubscriberUpdate);
+
+    return () => {
+      socket.off('view_updated', handleViewUpdate);
+      socket.off('reaction_updated', handleReactionUpdate);
+      socket.off('subscriber_updated', handleSubscriberUpdate);
+      // Optional: leave room
+    };
+  }, [socket, videoId]);
+
   useEffect(() => {
     if (!videoId) return;
     getVideos()
@@ -91,7 +140,7 @@ const Watch = () => {
 
   const videoComments = mockComments.filter(c => c.videoId === videoId);
 
-  const handleViewStart = () => {
+  const handleVideoEnded = () => {
     if (!video || hasRecordedView) return;
 
     setHasRecordedView(true);
@@ -119,6 +168,9 @@ const Watch = () => {
       return;
     }
 
+    // Optimistic UI updates are tricky with real-time from socket also coming in.
+    // We can update locally, and socket event will confirm/override.
+
     let likeDelta = 0;
     let dislikeDelta = 0;
 
@@ -142,7 +194,7 @@ const Watch = () => {
         setDislikes(prev => prev - 1);
         dislikeDelta -= 1;
       }
-      
+
       setUserReaction(type);
       if (type === 'like') {
         setLikes(prev => prev + 1);
@@ -153,20 +205,13 @@ const Watch = () => {
       }
     }
 
-    // Simulate Socket.IO broadcast
-    toast({
-      title: type === 'like' ? '👍 Liked!' : '👎 Disliked!',
-      description: 'Your reaction has been recorded.',
-    });
-
     if (!video) return;
 
-    // Persist the net change to the backend (fire-and-forget)
     if (likeDelta) {
-      updateVideoReaction(video.id, 'like', likeDelta).catch(() => {});
+      updateVideoReaction(video.id, 'like', likeDelta).catch(() => { });
     }
     if (dislikeDelta) {
-      updateVideoReaction(video.id, 'dislike', dislikeDelta).catch(() => {});
+      updateVideoReaction(video.id, 'dislike', dislikeDelta).catch(() => { });
     }
   };
 
@@ -181,19 +226,52 @@ const Watch = () => {
     }
     const nextSubscribed = !isSubscribed;
     setIsSubscribed(nextSubscribed);
+    // setSubscribers is handled by socket or verify
+    // But for immediate feedback:
     setSubscribers(prev => prev + (nextSubscribed ? 1 : -1));
 
     if (video) {
-      updateVideoSubscribers(video.id, nextSubscribed ? 1 : -1).catch(() => {});
+      // Delta 1 or -1 is logic backend handles toggle, but API prop might need check
+      // The API `updateVideoSubscribers` takes delta.
+      updateVideoSubscribers(video.id, nextSubscribed ? 1 : -1)
+        .then((res) => {
+          if (res) {
+            // The backend response might vary, `updateSubscribers` returns video but backend controller also emits socket
+          }
+        })
+        .catch(() => { });
     }
 
     toast({
       title: isSubscribed ? 'Unsubscribed' : 'Subscribed!',
-      description: isSubscribed 
+      description: isSubscribed
         ? `You unsubscribed from ${video?.author.username}`
         : `You're now subscribed to ${video?.author.username}`,
     });
   };
+
+  const handleDelete = async () => {
+    if (!video) return;
+    setIsDeleting(true);
+    try {
+      await deleteVideo(video.id);
+      toast({
+        title: 'Video deleted',
+        description: 'Your video has been successfully deleted.',
+      });
+      navigate('/');
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete video. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const isOwner = user && video && user.id === video.author.id;
 
   if (loading) {
     return (
@@ -242,17 +320,45 @@ const Watch = () => {
         {/* Main content */}
         <div className="flex-1">
           {/* Video Player */}
-          <VideoPlayer 
-            src={video.videoUrl} 
+          <VideoPlayer
+            src={video.videoUrl}
             poster={video.thumbnail}
-            onViewStart={handleViewStart}
+            onEnded={handleVideoEnded}
           />
 
           {/* Video info */}
           <div className="mt-4">
-            <h1 className="text-xl font-semibold text-foreground lg:text-2xl">
-              {video.title}
-            </h1>
+            <div className="flex items-start justify-between">
+              <h1 className="text-xl font-semibold text-foreground lg:text-2xl">
+                {video.title}
+              </h1>
+
+              {isOwner && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" className="gap-2">
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete your video
+                        and remove the data from our servers.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        {isDeleting ? 'Deleting...' : 'Delete'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
 
             {/* Stats and actions */}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
@@ -272,7 +378,7 @@ const Watch = () => {
                     </p>
                   </div>
                 </Link>
-                
+
                 <Button
                   onClick={handleSubscribe}
                   className={cn(

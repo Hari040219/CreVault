@@ -8,6 +8,7 @@ export interface IVideo extends Document {
   user: mongoose.Types.ObjectId;
   views: number;
   likes: number;
+  dislikes: number;
   createdAt: Date;
 }
 
@@ -45,6 +46,11 @@ const VideoSchema: Schema = new Schema(
     },
 
     likes: {
+      type: Number,
+      default: 0,
+    },
+
+    dislikes: {
       type: Number,
       default: 0,
     },

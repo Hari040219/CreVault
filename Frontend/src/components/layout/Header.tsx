@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Menu, Upload, Bell, User, LogOut, Settings, Play } from 'lucide-react';
+import { Search, Menu, Upload, Bell, User, LogOut, Settings, Play, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -41,7 +41,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         >
           <Menu className="h-5 w-5" />
         </Button>
-        
+
         <Link to="/" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Play className="h-4 w-4 fill-primary-foreground text-primary-foreground" />
@@ -87,7 +87,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 <Upload className="h-5 w-5" />
               </Link>
             </Button>
-            
+
             <Button
               variant="ghost"
               size="icon"
@@ -125,6 +125,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     Your Channel
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild className="cursor-pointer text-foreground hover:bg-accent">
+                  <Link to="/dashboard">
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
+                    Dashboard
+                  </Link>
+                </DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem asChild className="cursor-pointer text-foreground hover:bg-accent">
                     <Link to="/admin">
@@ -134,7 +140,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator className="bg-border" />
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive hover:bg-accent focus:text-destructive"
                 >

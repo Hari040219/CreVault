@@ -8,9 +8,10 @@ interface VideoPlayerProps {
   src: string;
   poster?: string;
   onViewStart?: () => void;
+  onEnded?: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, poster, onViewStart }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, poster, onViewStart, onEnded }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -28,7 +29,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, poster, onViewStart }) =
 
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime);
-      
+
       // Count view after 3 seconds of watching
       if (!viewCounted && video.currentTime >= 3) {
         setViewCounted(true);
@@ -42,19 +43,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, poster, onViewStart }) =
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      onEnded?.();
+    };
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
     };
-  }, [onViewStart, viewCounted]);
+  }, [onViewStart, viewCounted, onEnded]);
 
   const togglePlay = () => {
     if (videoRef.current) {

@@ -133,3 +133,68 @@ export async function updateVideoSubscribers(id: string, delta: number): Promise
   const apiBase = base || (typeof window !== 'undefined' ? window.location.origin : '');
   return mapApiVideoToVideo(data, apiBase);
 }
+
+/** Helper to get auth token from localStorage */
+function getAuthToken(): string | null {
+  try {
+    const stored = localStorage.getItem('streamtube_user');
+    if (stored) {
+      const user = JSON.parse(stored);
+      return user.token ?? null;
+    }
+  } catch { }
+  return null;
+}
+
+/** Delete a video by ID (requires auth token). */
+export async function deleteVideo(id: string): Promise<boolean> {
+  const base = getApiBase();
+  const url = base ? `${base}/api/videos/${id}` : `/api/videos/${id}`;
+  const token = getAuthToken();
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete video: ${res.status}`);
+  }
+  return true;
+}
+
+/** Dashboard stats shape returned by the backend. */
+export interface DashboardStats {
+  totalVideos: number;
+  totalViews: number;
+  totalLikes: number;
+  videos: ApiVideo[];
+}
+
+/** Fetch dashboard stats for the logged-in user (requires auth token). */
+export async function getDashboardStats(): Promise<{
+  totalVideos: number;
+  totalViews: number;
+  totalLikes: number;
+  videos: Video[];
+}> {
+  const base = getApiBase();
+  const url = base ? `${base}/api/videos/dashboard` : `/api/videos/dashboard`;
+  const token = getAuthToken();
+  const res = await fetch(url, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch dashboard stats: ${res.status}`);
+  }
+  const data: DashboardStats = await res.json();
+  const apiBase = base || (typeof window !== 'undefined' ? window.location.origin : '');
+  return {
+    totalVideos: data.totalVideos,
+    totalViews: data.totalViews,
+    totalLikes: data.totalLikes,
+    videos: data.videos.map((v) => mapApiVideoToVideo(v, apiBase)),
+  };
+}
