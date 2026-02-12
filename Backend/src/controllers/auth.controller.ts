@@ -8,16 +8,21 @@ import generateToken from "../utils/generateToken";
  */
 export const register = async (req: Request, res: Response) => {
   try {
+    console.log("=== REGISTER REQUEST ===");
+    console.log("Body:", req.body);
+
     const { name, email, password } = req.body;
 
     // Validation
     if (!name || !email || !password) {
+      console.log("Missing fields:", { name: !!name, email: !!email, password: !!password });
       return res.status(400).json({ message: "All fields are required" });
     }
 
     // Check existing user
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      console.log("User already exists:", email);
       return res.status(400).json({ message: "User already exists" });
     }
 
@@ -30,6 +35,8 @@ export const register = async (req: Request, res: Response) => {
       email,
       password: hashedPassword,
     });
+
+    console.log("User created successfully:", user._id);
 
     // Generate token
     const token = generateToken(user._id.toString());
@@ -44,6 +51,7 @@ export const register = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    console.error("Register error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -53,27 +61,39 @@ export const register = async (req: Request, res: Response) => {
  */
 export const login = async (req: Request, res: Response) => {
   try {
+    console.log("=== LOGIN REQUEST ===");
+    console.log("Body:", req.body);
+
     const { email, password } = req.body;
 
     // Validation
     if (!email || !password) {
+      console.log("Missing fields:", { email: !!email, password: !!password });
       return res.status(400).json({ message: "All fields are required" });
     }
 
     // Find user
     const user = await User.findOne({ email });
     if (!user) {
+      console.log("User not found:", email);
       return res.status(401).json({ message: "Invalid credentials" });
     }
+
+    console.log("User found:", user._id);
 
     // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.log("Password mismatch for user:", email);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    console.log("Password matched, generating token");
+
     // Generate token
     const token = generateToken(user._id.toString());
+
+    console.log("Login successful for user:", email);
 
     res.status(200).json({
       message: "Login successful",
@@ -85,6 +105,7 @@ export const login = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    console.error("Login error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
