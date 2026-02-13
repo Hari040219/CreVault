@@ -6,6 +6,7 @@ import {
     incrementViews,
     updateReaction,
     updateSubscribers,
+    getSubscriptionStatus,
     deleteVideo,
     getDashboardStats,
 } from "../controllers/video.controller";
@@ -21,6 +22,7 @@ router.get("/:id", getVideoById);
 router.post("/:id/view", protect, incrementViews); // Protect view increment to ensure unique user
 router.post("/:id/react", protect, updateReaction);
 router.post("/:id/subscribe", protect, updateSubscribers);
+router.get("/:id/subscription-status", protect, getSubscriptionStatus);
 router.delete("/:id", protect, deleteVideo); // Delete route
 
 export default router;

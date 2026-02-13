@@ -26,6 +26,7 @@ import {
   incrementVideoView,
   updateVideoReaction,
   updateVideoSubscribers,
+  checkSubscriptionStatus,
   deleteVideo,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -138,10 +139,23 @@ const Watch = () => {
       .catch(() => setRelatedVideos([]));
   }, [videoId]);
 
+  // Fetch subscription status on load
+  useEffect(() => {
+    if (!videoId || !isAuthenticated) return;
+    checkSubscriptionStatus(videoId)
+      .then((status) => {
+        if (status) {
+          setIsSubscribed(status.isSubscribed);
+          setSubscribers(status.subscribers);
+        }
+      })
+      .catch(() => { });
+  }, [videoId, isAuthenticated]);
+
   const videoComments = mockComments.filter(c => c.videoId === videoId);
 
-  const handleVideoEnded = () => {
-    if (!video || hasRecordedView) return;
+  const handleViewStart = () => {
+    if (!video || !isAuthenticated || hasRecordedView) return;
 
     setHasRecordedView(true);
     // Optimistic update
@@ -167,52 +181,32 @@ const Watch = () => {
       });
       return;
     }
-
-    // Optimistic UI updates are tricky with real-time from socket also coming in.
-    // We can update locally, and socket event will confirm/override.
-
-    let likeDelta = 0;
-    let dislikeDelta = 0;
-
-    if (userReaction === type) {
-      // Remove reaction
-      setUserReaction(null);
-      if (type === 'like') {
-        setLikes(prev => prev - 1);
-        likeDelta = -1;
-      } else {
-        setDislikes(prev => prev - 1);
-        dislikeDelta = -1;
-      }
-    } else {
-      // Add or switch reaction
-      if (userReaction === 'like') {
-        setLikes(prev => prev - 1);
-        likeDelta -= 1;
-      }
-      if (userReaction === 'dislike') {
-        setDislikes(prev => prev - 1);
-        dislikeDelta -= 1;
-      }
-
-      setUserReaction(type);
-      if (type === 'like') {
-        setLikes(prev => prev + 1);
-        likeDelta += 1;
-      } else {
-        setDislikes(prev => prev + 1);
-        dislikeDelta += 1;
-      }
-    }
-
     if (!video) return;
 
-    if (likeDelta) {
-      updateVideoReaction(video.id, 'like', likeDelta).catch(() => { });
+    // Optimistic UI update
+    if (userReaction === type) {
+      // Toggle off
+      setUserReaction(null);
+      if (type === 'like') setLikes(prev => Math.max(0, prev - 1));
+      else setDislikes(prev => Math.max(0, prev - 1));
+    } else {
+      // Switch or new reaction
+      if (userReaction === 'like') setLikes(prev => Math.max(0, prev - 1));
+      if (userReaction === 'dislike') setDislikes(prev => Math.max(0, prev - 1));
+      setUserReaction(type);
+      if (type === 'like') setLikes(prev => prev + 1);
+      else setDislikes(prev => prev + 1);
     }
-    if (dislikeDelta) {
-      updateVideoReaction(video.id, 'dislike', dislikeDelta).catch(() => { });
-    }
+
+    // Single API call — backend handles toggle/switch logic internally
+    updateVideoReaction(video.id, type)
+      .then((updated) => {
+        if (updated) {
+          setLikes(updated.likes);
+          setDislikes(updated.dislikes);
+        }
+      })
+      .catch(() => { });
   };
 
   const handleSubscribe = () => {
@@ -224,29 +218,28 @@ const Watch = () => {
       });
       return;
     }
+    if (!video) return;
+
+    // Optimistic UI update
     const nextSubscribed = !isSubscribed;
     setIsSubscribed(nextSubscribed);
-    // setSubscribers is handled by socket or verify
-    // But for immediate feedback:
-    setSubscribers(prev => prev + (nextSubscribed ? 1 : -1));
+    setSubscribers(prev => Math.max(0, prev + (nextSubscribed ? 1 : -1)));
 
-    if (video) {
-      // Delta 1 or -1 is logic backend handles toggle, but API prop might need check
-      // The API `updateVideoSubscribers` takes delta.
-      updateVideoSubscribers(video.id, nextSubscribed ? 1 : -1)
-        .then((res) => {
-          if (res) {
-            // The backend response might vary, `updateSubscribers` returns video but backend controller also emits socket
-          }
-        })
-        .catch(() => { });
-    }
+    updateVideoSubscribers(video.id)
+      .then((result) => {
+        if (result) {
+          // Sync with actual backend values
+          setSubscribers(result.subscribers);
+          setIsSubscribed(result.isSubscribed);
+        }
+      })
+      .catch(() => { });
 
     toast({
-      title: isSubscribed ? 'Unsubscribed' : 'Subscribed!',
-      description: isSubscribed
-        ? `You unsubscribed from ${video?.author.username}`
-        : `You're now subscribed to ${video?.author.username}`,
+      title: nextSubscribed ? 'Subscribed!' : 'Unsubscribed',
+      description: nextSubscribed
+        ? `You're now subscribed to ${video.author.username}`
+        : `You unsubscribed from ${video.author.username}`,
     });
   };
 
@@ -323,7 +316,7 @@ const Watch = () => {
           <VideoPlayer
             src={video.videoUrl}
             poster={video.thumbnail}
-            onEnded={handleVideoEnded}
+            onViewStart={handleViewStart}
           />
 
           {/* Video info */}

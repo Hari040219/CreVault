@@ -79,7 +79,7 @@ export const incrementViews = async (req: Request, res: Response) => {
       // getIO(req).to(`video_${videoId}`).emit("view_updated", { views: video.views });
     }
 
-    res.json(video);
+    res.json(await video.populate("user", "name email subscribers"));
   } catch (error) {
     console.error("Increment views error:", error);
     res.status(500).json({ message: "Server error" });
@@ -125,7 +125,7 @@ export const updateReaction = async (req: Request, res: Response) => {
     await video.save();
     getIO(req).to(`video_${videoId}`).emit("reaction_updated", { likes: video.likes, dislikes: video.dislikes });
 
-    res.json(video);
+    res.json(await video.populate("user", "name email subscribers"));
   } catch (error) {
     console.error("Update reaction error:", error);
     res.status(500).json({ message: "Server error" });
@@ -222,3 +222,26 @@ export const getDashboardStats = async (req: Request, res: Response) => {
   }
 };
 
+export const getSubscriptionStatus = async (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
+  const videoId = req.params.id;
+
+  try {
+    const video = await Video.findById(videoId);
+    if (!video) return res.status(404).json({ message: "Video not found" });
+
+    const channelId = video.user;
+    const channelUser = await User.findById(channelId);
+    if (!channelUser) return res.status(404).json({ message: "Channel not found" });
+
+    const existingSub = await Subscription.findOne({ subscriber: userId, channel: channelId });
+
+    res.json({
+      subscribers: channelUser.subscribers || 0,
+      isSubscribed: !!existingSub,
+    });
+  } catch (error) {
+    console.error("Get subscription status error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};

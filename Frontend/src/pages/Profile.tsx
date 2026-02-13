@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Calendar, Users, Video, Settings } from 'lucide-react';
+import { Calendar, Users, Video as VideoIcon, Settings, Eye, ThumbsUp } from 'lucide-react';
 import MainLayout from '@/components/layout/MainLayout';
 import VideoCard from '@/components/video/VideoCard';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { mockUsers, mockVideos, formatViews } from '@/lib/mockData';
+import { formatViews, formatDate, Video } from '@/lib/mockData';
+import { getUserProfile, getUserVideos, ApiUserProfile } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -15,32 +16,74 @@ const Profile = () => {
   const { user: currentUser, isAuthenticated } = useAuth();
   const { toast } = useToast();
 
-  const profileUser = mockUsers.find(u => u.id === userId) || 
-    (currentUser?.id === userId ? currentUser : null);
+  const [profileUser, setProfileUser] = useState<ApiUserProfile | null>(null);
+  const [userVideos, setUserVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const userVideos = mockVideos.filter(v => v.author.id === userId);
   const isOwnProfile = currentUser?.id === userId;
 
-  const [isSubscribed, setIsSubscribed] = React.useState(false);
-
-  const handleSubscribe = () => {
-    if (!isAuthenticated) {
-      toast({
-        title: 'Sign in required',
-        description: 'Please sign in to subscribe.',
-        variant: 'destructive',
-      });
+  // Fetch profile and videos from the backend
+  useEffect(() => {
+    if (!userId) {
+      setLoading(false);
       return;
     }
-    
-    setIsSubscribed(!isSubscribed);
-    toast({
-      title: isSubscribed ? 'Unsubscribed' : 'Subscribed!',
-      description: isSubscribed 
-        ? `You unsubscribed from ${profileUser?.username}`
-        : `You're now subscribed to ${profileUser?.username}`,
-    });
-  };
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([
+      getUserProfile(userId),
+      getUserVideos(userId),
+    ])
+      .then(([profile, videos]) => {
+        if (cancelled) return;
+        setProfileUser(profile);
+        setUserVideos(videos);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load profile');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const totalViews = userVideos.reduce((acc, v) => acc + (v.views || 0), 0);
+  const totalLikes = userVideos.reduce((acc, v) => acc + (v.likes || 0), 0);
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MainLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="text-center">
+            <p className="text-destructive">{error}</p>
+            <Button asChild className="mt-4">
+              <Link to="/">Go Home</Link>
+            </Button>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   if (!profileUser) {
     return (
@@ -68,14 +111,14 @@ const Profile = () => {
         <div className="relative -mt-16 mb-6 flex flex-col items-start gap-4 px-4 sm:flex-row sm:items-end sm:px-6">
           <Avatar className="h-24 w-24 border-4 border-background sm:h-32 sm:w-32">
             <AvatarFallback className="bg-primary text-3xl text-primary-foreground">
-              {profileUser.username.charAt(0)}
+              {profileUser.name.charAt(0)}
             </AvatarFallback>
           </Avatar>
 
           <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-                {profileUser.username}
+                {profileUser.name}
               </h1>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -84,38 +127,62 @@ const Profile = () => {
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-1">
-                  <Video className="h-4 w-4" />
+                  <VideoIcon className="h-4 w-4" />
                   {userVideos.length} videos
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  Joined {profileUser.createdAt}
+                  Joined {formatDate(profileUser.createdAt)}
                 </span>
               </div>
             </div>
 
             <div className="flex gap-2">
-              {isOwnProfile ? (
-                <Button variant="secondary" className="gap-2">
-                  <Settings className="h-4 w-4" />
-                  Customize channel
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleSubscribe}
-                  className={
-                    isSubscribed
-                      ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                      : 'bg-foreground text-background hover:bg-foreground/90'
-                  }
-                >
-                  {isSubscribed ? 'Subscribed' : 'Subscribe'}
+              {isOwnProfile && (
+                <Button variant="secondary" className="gap-2" asChild>
+                  <Link to="/dashboard">
+                    <Settings className="h-4 w-4" />
+                    Manage Channel
+                  </Link>
                 </Button>
               )}
             </div>
           </div>
         </div>
+
+        {/* Stats row for own profile */}
+        {isOwnProfile && (
+          <div className="mb-6 grid grid-cols-1 gap-4 px-4 sm:grid-cols-3 sm:px-6">
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                <VideoIcon className="h-5 w-5 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Videos</p>
+                <p className="text-xl font-bold text-foreground">{userVideos.length}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10">
+                <Eye className="h-5 w-5 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Views</p>
+                <p className="text-xl font-bold text-foreground">{formatViews(totalViews)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/10">
+                <ThumbsUp className="h-5 w-5 text-rose-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Likes</p>
+                <p className="text-xl font-bold text-foreground">{formatViews(totalLikes)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <Tabs defaultValue="videos" className="mt-6">
@@ -125,12 +192,6 @@ const Profile = () => {
               className="h-12 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
             >
               Videos
-            </TabsTrigger>
-            <TabsTrigger
-              value="playlists"
-              className="h-12 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
-              Playlists
             </TabsTrigger>
             <TabsTrigger
               value="about"
@@ -149,7 +210,7 @@ const Profile = () => {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-20">
-                <Video className="mb-4 h-16 w-16 text-muted-foreground" />
+                <VideoIcon className="mb-4 h-16 w-16 text-muted-foreground" />
                 <h2 className="text-xl font-semibold text-foreground">No videos yet</h2>
                 <p className="mt-2 text-muted-foreground">
                   {isOwnProfile
@@ -165,28 +226,22 @@ const Profile = () => {
             )}
           </TabsContent>
 
-          <TabsContent value="playlists" className="mt-6">
-            <div className="flex flex-col items-center justify-center py-20">
-              <h2 className="text-xl font-semibold text-foreground">No playlists</h2>
-              <p className="mt-2 text-muted-foreground">
-                Playlists will appear here when created.
-              </p>
-            </div>
-          </TabsContent>
-
           <TabsContent value="about" className="mt-6">
             <div className="max-w-2xl space-y-4">
               <div>
                 <h3 className="font-semibold text-foreground">Description</h3>
                 <p className="mt-2 text-muted-foreground">
-                  Welcome to {profileUser.username}'s channel! Stay tuned for awesome content.
+                  Welcome to {profileUser.name}'s channel! Stay tuned for awesome content.
                 </p>
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Stats</h3>
-                <p className="mt-2 text-muted-foreground">
-                  Joined {profileUser.createdAt}
-                </p>
+                <div className="mt-2 space-y-1 text-muted-foreground">
+                  <p>Joined {formatDate(profileUser.createdAt)}</p>
+                  <p>{formatViews(totalViews)} total views</p>
+                  <p>{userVideos.length} videos</p>
+                  <p>{formatViews(profileUser.subscribers)} subscribers</p>
+                </div>
               </div>
             </div>
           </TabsContent>
